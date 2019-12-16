@@ -1,6 +1,6 @@
 # Header Collector
-This project consists of small command line utilities to collect block headers from an Ethereum node.
-The block headers are collected via websockets and stored in a PostgreSQL database.
+This project consists of small command line utilities to collect recent Ethereum block headers.
+The block headers are collected via websockets from an Ethereum node and stored in a PostgreSQL database.
 
 ## Prerequisites
 ### Run Ethereum node with Docker
