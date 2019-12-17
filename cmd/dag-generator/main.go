@@ -7,17 +7,17 @@ import (
 )
 
 func main() {
-	startBlock := flag.Uint64("start", 9069000, "starting block height")	// block of istanbul hardfork
-	endBlock := flag.Uint64("end", 10069000, "end block height")
-	directory := flag.String("out", ethash.DefaultDir, "output directory")
+	startEpoch := flag.Uint64("start", 302, "starting epoch") // 302 epoch istanbul hardfork
+	endEpoch := flag.Uint64("end", 335, "end epoch")   // 33 epochs ~ 1,000,000 blocks
+	output := flag.String("out", ethash.DefaultDir, "output output")
 
 	flag.Parse()
 
-	fmt.Printf("*** Starting cache generation for blocks %d to %d (%d epochs) ***\n", *startBlock, *endBlock, (*endBlock-*startBlock)/30000)
-	fmt.Printf("Output directory: %s\n", *directory)
+	fmt.Printf("*** Starting cache generation for epochs %d to %d (%d epochs) ***\n", *startEpoch, *endEpoch, *endEpoch + 1 -*startEpoch)
+	fmt.Printf("Output directory: %s\n", *output)
 
-	for i := *startBlock; i < *endBlock; i += 30000 {
-		fmt.Printf("Generating cache for epoch %d...\n", i/30000)
-		ethash.MakeDAG(i, *directory)
+	for i := *startEpoch; i <= *endEpoch; i++ {
+		fmt.Printf("Generating cache for epoch %d...\n", i)
+		ethash.MakeDAG(i*30000, *output)
 	}
 }

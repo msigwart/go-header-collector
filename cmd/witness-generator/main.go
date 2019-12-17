@@ -8,8 +8,19 @@ import (
 	"github.com/ethereum/go-ethereum/rlp"
 	hc "github.com/msigwart/header-collector"
 	"golang.org/x/crypto/sha3"
-	"os"
 )
+
+func worker(id int, headerDb *hc.BlockHeaderDB, jobs <-chan uint64, results chan<- uint64) {
+	for {
+		select {
+		case blockNumber := <- jobs:
+			fmt.Printf("Worker %d: Generating witness data for blocks of height %d...\n", id, blockNumber)
+
+			fmt.Printf("Worker %d: Done.\n", id)
+			results <- blockNumber
+		}
+	}
+}
 
 func main() {
 	dbhost := flag.String("dbhost", "localhost", "database host")
@@ -23,15 +34,26 @@ func main() {
 	headerDB := hc.ConnectToBlockHeaderDB(*dbhost, *dbport, *dbuser, *dbpassword, *dbname)
 	defer headerDB.Close()
 
+
+	jobs := make(chan uint64, 100)
+	results := make(chan uint64, 100)
+
+	// start workers
+	for w := 1; w <= 5; w++ {
+		go worker(w, headerDB, jobs, results)
+	}
+
 	minBlockNumber := headerDB.MinBlockNumberWithoutWitness()
-	fmt.Printf("Starting witness generation from block %d...\n", minBlockNumber)
-	os.Exit(0)
-	////client, err := ethclient.Dial("wss://mainnet.infura.io/ws/v3/ab050ca98686478e9e9b06dfc3b2f069")
-	//client, err := ethclient.Dial("ws://localhost:8546")
-	//if err != nil {
-	//	log.Fatal(err)
-	//}
-	//
+	fmt.Printf("*** Starting witness generation from block %d ***\n", minBlockNumber)
+	for i := minBlockNumber; i<minBlockNumber + 100; i++ {
+		jobs <- i
+	}
+
+	for r := 0; r < 100; r++ {
+		<- results
+	}
+	fmt.Printf("*** Witness data generation done ***\n")
+
 	//headers := make(chan *types.Header)
 	//
 	//sub, err := client.SubscribeNewHead(context.Background(), headers)

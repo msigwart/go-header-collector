@@ -6,7 +6,7 @@ The block headers are collected via websockets from an Ethereum node and stored 
 ### Run Ethereum node with Docker
 Start an Ethereum light client (Geth) with Docker:
 ```
-docker run --name geth-node -P -v /tmp/geth:/root/.ethereum ethereum/client-go --syncmode light --rpc --rpcaddr 0.0.0.0 --ws --wsaddr 0.0.0.0
+docker run -d --name geth-node -P -v $HOME/docker/volumes/geth:/root/.ethereum ethereum/client-go --syncmode light --rpc --rpcaddr 0.0.0.0 --ws --wsaddr 0.0.0.0
 ``` 
 
 The websocket connection will be available under `ws://localhost:8546`.
@@ -17,7 +17,7 @@ Alternatively, you can connect to Infura via `"wss://mainnet.infura.io/ws/v3/<PR
 ### Setup Postgres database with Docker
 1. Start Postgres DB: 
     ```
-    docker run -P -d --name blockheader-db -e POSTGRES_DB=blockheader postgres
+    docker run -P -d --name blockheader-db -e POSTGRES_DB=blockheader -v $HOME/docker/volumes/postgres:/var/lib/postgresql/data postgres
     ```
 2. Copy init script
     ```
