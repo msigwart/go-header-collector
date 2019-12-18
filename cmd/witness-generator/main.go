@@ -7,22 +7,56 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/rlp"
 	hc "github.com/msigwart/header-collector"
+	"github.com/pantos-io/go-testimonium/ethereum/ethash"
 	"golang.org/x/crypto/sha3"
 )
 
-func worker(id int, headerDb *hc.BlockHeaderDB, jobs <-chan uint64, results chan<- uint64) {
-	for {
-		select {
-		case blockNumber := <- jobs:
-			fmt.Printf("Worker %d: Generating witness data for blocks of height %d...\n", id, blockNumber)
+const BATCH_SIZE = 100
 
-			fmt.Printf("Worker %d: Done.\n", id)
-			results <- blockNumber
+func coordinator(headerDb *hc.BlockHeaderDB, jobs chan<- uint64, results <-chan uint64, done chan<- bool) {
+	for {
+		minBlockNumber, err := headerDb.MinBlockNumberWithoutWitness()
+		if err != nil {
+			fmt.Printf("Coordinator: %s, stopping...\n", err)
+			close(jobs)
+			break
 		}
+		fmt.Printf("Coordinator: generating witness data for blocks %d to %d...\n", minBlockNumber, minBlockNumber+BATCH_SIZE-1)
+		for i := minBlockNumber; i < minBlockNumber+BATCH_SIZE; i++ {
+			jobs <- i
+		}
+		for r := 0; r < BATCH_SIZE; r++ {
+			<-results
+		}
+	}
+	done <- true
+}
+
+func worker(id int, headerDb *hc.BlockHeaderDB, jobs <-chan uint64, results chan<- uint64) {
+	for blockNumber := range jobs {
+		fmt.Printf("Worker %d: generating witness data for blocks of height %d...\n", id, blockNumber)
+		headers := make(chan *types.Header)
+		go headerDb.HeadersOfHeight(blockNumber, headers)
+
+		for header := range headers {
+			if header.Hash() == (common.Hash{}) {
+				fmt.Printf("Worker %d: empty block header, skipping...\n", id)
+				continue
+			}
+			fmt.Printf("Worker %d: block %s...\n", id, header.Hash().String())
+			// get DAG and compute dataSetLookup and witnessForLookup
+			blockMetaData := ethash.NewBlockMetaData(header.Number.Uint64(), header.Nonce.Uint64(), sealHash(header))
+			dataSetLookup := blockMetaData.DAGElementArray()
+			witnessForLookup := blockMetaData.DAGProofArray()
+			headerDb.AddWitnessDataForHeader(header, dataSetLookup, witnessForLookup)
+		}
+		fmt.Printf("Worker %d: done.\n", id)
+		results <- blockNumber
 	}
 }
 
 func main() {
+	workers := flag.Uint("workers", 5, "number of workers")
 	dbhost := flag.String("dbhost", "localhost", "database host")
 	dbport := flag.Uint("dbport", 5432, "database port")
 	dbname := flag.String("dbname", "blockheader", "database name")
@@ -35,49 +69,22 @@ func main() {
 	defer headerDB.Close()
 
 
-	jobs := make(chan uint64, 100)
-	results := make(chan uint64, 100)
+	jobs := make(chan uint64, BATCH_SIZE)
+	results := make(chan uint64, BATCH_SIZE)
+	done := make(chan bool)
+
+	fmt.Printf("*** Starting witness data generation ***\n")
 
 	// start workers
-	for w := 1; w <= 5; w++ {
+	for w := 1; w <= int(*workers); w++ {
 		go worker(w, headerDB, jobs, results)
 	}
 
-	minBlockNumber := headerDB.MinBlockNumberWithoutWitness()
-	fmt.Printf("*** Starting witness generation from block %d ***\n", minBlockNumber)
-	for i := minBlockNumber; i<minBlockNumber + 100; i++ {
-		jobs <- i
-	}
+	// start coordinator
+	go coordinator(headerDB, jobs, results, done)
 
-	for r := 0; r < 100; r++ {
-		<- results
-	}
+	<-done
 	fmt.Printf("*** Witness data generation done ***\n")
-
-	//headers := make(chan *types.Header)
-	//
-	//sub, err := client.SubscribeNewHead(context.Background(), headers)
-	//if err != nil {
-	//	log.Fatal(err)
-	//}
-	//
-	//for {
-	//	select {
-	//	case err := <-sub.Err():
-	//		log.Fatal(err)
-	//	case header := <-headers:
-	//		fmt.Printf("Height: %s: %s\n", header.Number.String(), header.Hash().Hex()) // 0xbc10defa8dda384c96a17640d84de5578804945d347072e091b4e5f390ddea7f
-	//		headerDB.InsertBlockHeader(header)
-	//
-	//		fmt.Println("create DAG, compute dataSetLookup and witnessForLookup")
-	//		// get DAG and compute dataSetLookup and witnessForLookup
-	//		blockMetaData := ethash.NewBlockMetaData(header.Number.Uint64(), header.Nonce.Uint64(), sealHash(header))
-	//		dataSetLookup := blockMetaData.DAGElementArray()
-	//		witnessForLookup := blockMetaData.DAGProofArray()
-	//		fmt.Printf("dataSetLookup: %s\n", dataSetLookup)
-	//		fmt.Printf("witnessForLookup: %s\n", witnessForLookup)
-	//	}
-	//}
 }
 
 func sealHash(header *types.Header) (hash common.Hash) {
