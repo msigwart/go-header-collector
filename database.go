@@ -68,8 +68,42 @@ func (db *BlockHeaderDB) MinBlockNumberWithoutWitness() (uint64, error) {
 	return minBlockNumberWithoutWitness, nil
 }
 
-func (db *BlockHeaderDB) HeadersOfHeight(height uint64, results chan<- *types.Header) {
-	sqlStatement := `SELECT block_data FROM blockheader WHERE block_number = $1`
+func (db *BlockHeaderDB) MaxBlockNumberWithoutWitness() (uint64, error) {
+	sqlStatement := `SELECT MAX(block_number) FROM blockheader WHERE dataset_lookup IS NULL`
+	var maxBlockNumberWithoutWitness uint64
+	row := db.db.QueryRow(sqlStatement)
+	switch err := row.Scan(&maxBlockNumberWithoutWitness); err {
+	case sql.ErrNoRows:
+		return 0, fmt.Errorf("no rows without witness data exist")
+	case nil:
+		break
+	default:
+		return 0, err
+	}
+	return maxBlockNumberWithoutWitness, nil
+}
+
+func (db *BlockHeaderDB) HasHeadersWithoutWitnessOfHeight(height uint64) bool {
+	sqlStatement := `SELECT COUNT(1) FROM blockheader WHERE block_number = $1 AND dataset_lookup IS NULL`
+	row := db.db.QueryRow(sqlStatement, height)
+	var count uint
+	switch err := row.Scan(&count); err {
+	case sql.ErrNoRows:
+		return false
+	case nil:
+		break
+	default:
+		return false
+	}
+	if count == 0 {
+		return false
+	} else {
+		return true
+	}
+}
+
+func (db *BlockHeaderDB) HeadersWithoutWitnessOfHeight(height uint64, results chan<- *types.Header) {
+	sqlStatement := `SELECT block_data FROM blockheader WHERE block_number = $1 AND dataset_lookup IS NULL`
 	rows, err := db.db.Query(sqlStatement, height)
 	if err != nil {
 		log.Fatal(err)

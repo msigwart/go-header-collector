@@ -11,22 +11,47 @@ import (
 	"golang.org/x/crypto/sha3"
 )
 
-const BATCH_SIZE = 100
+const BATCH_SIZE = 50
 
-func coordinator(headerDb *hc.BlockHeaderDB, jobs chan<- uint64, results <-chan uint64, done chan<- bool) {
-	for {
-		minBlockNumber, err := headerDb.MinBlockNumberWithoutWitness()
+func coordinator(headerDb *hc.BlockHeaderDB, start uint64, end uint64, jobs chan<- uint64, results <-chan uint64, done chan<- bool) {
+	startingBlockNumber := start
+	endingBlockNumber := end
+	if start == 0 {
+		minBlockNumberWithoutWitness, err := headerDb.MinBlockNumberWithoutWitness()
 		if err != nil {
 			fmt.Printf("Coordinator: %s, stopping...\n", err)
 			close(jobs)
+			done <- true
+		}
+		startingBlockNumber = minBlockNumberWithoutWitness
+	}
+
+	for {
+		if end == 0 {
+			// if no end block is specified the ending block is determined by the highest block number without witness data
+			// this has to reevaluated on each loop iteration as this block might change
+			maxBlockNumberWithoutWitness, err := headerDb.MaxBlockNumberWithoutWitness()
+			if err != nil {
+				fmt.Printf("Coordinator: %s, stopping...\n", err)
+				close(jobs)
+				break
+			}
+			endingBlockNumber = maxBlockNumberWithoutWitness
+		}
+
+		if startingBlockNumber >= endingBlockNumber {
 			break
 		}
-		fmt.Printf("Coordinator: generating witness data for blocks %d to %d...\n", minBlockNumber, minBlockNumber+BATCH_SIZE-1)
-		for i := minBlockNumber; i < minBlockNumber+BATCH_SIZE; i++ {
+		queueSize := uint64(BATCH_SIZE)
+		if endingBlockNumber - startingBlockNumber < BATCH_SIZE {
+			queueSize = endingBlockNumber - startingBlockNumber + 1
+		}
+		fmt.Printf("Coordinator: generating witness data for blocks %d to %d...\n", startingBlockNumber, startingBlockNumber+queueSize-1)
+		for i := startingBlockNumber; i < startingBlockNumber+queueSize; i++ {
 			jobs <- i
 		}
-		for r := 0; r < BATCH_SIZE; r++ {
-			<-results
+		for r := uint64(0); r < queueSize; r++ {
+			startingBlockNumber = <-results + 1
 		}
 	}
 	done <- true
@@ -34,9 +59,13 @@ func coordinator(headerDb *hc.BlockHeaderDB, jobs chan<- uint64, results <-chan 
 
 func worker(id int, headerDb *hc.BlockHeaderDB, jobs <-chan uint64, results chan<- uint64) {
 	for blockNumber := range jobs {
+		if headerDb.HasHeadersWithoutWitnessOfHeight(blockNumber) == false {
+			fmt.Printf("Worker %d: nothing to do for blocks of height %d, skipping...\n", id, blockNumber)
+			continue
+		}
 		fmt.Printf("Worker %d: generating witness data for blocks of height %d...\n", id, blockNumber)
 		headers := make(chan *types.Header)
-		go headerDb.HeadersOfHeight(blockNumber, headers)
+		go headerDb.HeadersWithoutWitnessOfHeight(blockNumber, headers)
 
 		for header := range headers {
 			if header.Hash() == (common.Hash{}) {
@@ -56,11 +85,13 @@ func worker(id int, headerDb *hc.BlockHeaderDB, jobs <-chan uint64, results chan
 }
 
 func main() {
-	workers := flag.Uint("workers", 5, "number of workers")
-	dbhost := flag.String("dbhost", "localhost", "database host")
-	dbport := flag.Uint("dbport", 5432, "database port")
-	dbname := flag.String("dbname", "blockheader", "database name")
-	dbuser := flag.String("dbuser", "postgres", "database user")
+	workers    := flag.Uint("workers", 5, "number of workers")
+	start      := flag.Uint64("start", 0, "starting block")
+	end        := flag.Uint64("end", 0, "end block")
+	dbhost     := flag.String("dbhost", "localhost", "database host")
+	dbport     := flag.Uint("dbport", 5432, "database port")
+	dbname     := flag.String("dbname", "blockheader", "database name")
+	dbuser     := flag.String("dbuser", "postgres", "database user")
 	dbpassword := flag.String("dbpassword", "postgres", "database password")
 
 	flag.Parse()
@@ -81,7 +112,7 @@ func main() {
 	}
 
 	// start coordinator
-	go coordinator(headerDB, jobs, results, done)
+	go coordinator(headerDB, *start, *end, jobs, results, done)
 
 	<-done
 	fmt.Printf("*** Witness data generation done ***\n")
