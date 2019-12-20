@@ -18,6 +18,7 @@ func main() {
 
 	for i := *startEpoch; i <= *endEpoch; i++ {
 		fmt.Printf("Generating cache for epoch %d...\n", i)
-		ethash.MakeDAG(i*30000, *output)
+		ethash.MakeCache(i*30000, *output)
+		ethash.MakeDataset(i*30000, *output)
 	}
 }
