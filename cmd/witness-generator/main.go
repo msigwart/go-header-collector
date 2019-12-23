@@ -9,6 +9,7 @@ import (
 	hc "github.com/msigwart/header-collector"
 	"github.com/pantos-io/go-testimonium/ethereum/ethash"
 	"golang.org/x/crypto/sha3"
+	"time"
 )
 
 const BATCH_SIZE = 50
@@ -68,6 +69,7 @@ func worker(id int, headerDb *hc.BlockHeaderDB, jobs <-chan uint64, results chan
 		go headerDb.HeadersWithoutWitnessOfHeight(blockNumber, headers)
 
 		for header := range headers {
+			startTime := time.Now()
 			if header.Hash() == (common.Hash{}) {
 				fmt.Printf("Worker %d: empty block header, skipping...\n", id)
 				continue
@@ -78,6 +80,8 @@ func worker(id int, headerDb *hc.BlockHeaderDB, jobs <-chan uint64, results chan
 			dataSetLookup := blockMetaData.DAGElementArray()
 			witnessForLookup := blockMetaData.DAGProofArray()
 			headerDb.AddWitnessDataForHeader(header, dataSetLookup, witnessForLookup)
+			endTime := time.Now()
+			fmt.Printf("Worker %d: Time: %.2f min\n", id, endTime.Sub(startTime).Minutes())
 		}
 		fmt.Printf("Worker %d: done.\n", id)
 		results <- blockNumber
