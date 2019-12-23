@@ -43,17 +43,18 @@ func coordinator(headerDb *hc.BlockHeaderDB, start uint64, end uint64, jobs chan
 		if startingBlockNumber >= endingBlockNumber {
 			break
 		}
-		queueSize := uint64(BATCH_SIZE)
-		if endingBlockNumber - startingBlockNumber < BATCH_SIZE {
-			queueSize = endingBlockNumber - startingBlockNumber + 1
-		}
-		fmt.Printf("Coordinator: generating witness data for blocks %d to %d...\n", startingBlockNumber, startingBlockNumber+queueSize-1)
-		for i := startingBlockNumber; i < startingBlockNumber+queueSize; i++ {
+		//queueSize := uint64(BATCH_SIZE)
+		//if endingBlockNumber - startingBlockNumber < BATCH_SIZE {
+		//	queueSize = endingBlockNumber - startingBlockNumber + 1
+		//}
+		fmt.Printf("Coordinator: generating witness data for blocks %d to %d...\n", startingBlockNumber, endingBlockNumber)
+		for i := startingBlockNumber; i <= endingBlockNumber; i++ {
+			fmt.Printf("Coordinator: Assign block height %d / %d\n", i, endingBlockNumber)
 			jobs <- i
 		}
-		for r := uint64(0); r < queueSize; r++ {
-			startingBlockNumber = <-results + 1
-		}
+		//for r := uint64(0); r < queueSize; r++ {
+		//	startingBlockNumber = <-results + 1
+		//}
 	}
 	done <- true
 }
@@ -84,7 +85,7 @@ func worker(id int, headerDb *hc.BlockHeaderDB, jobs <-chan uint64, results chan
 			fmt.Printf("Worker %d: Time: %.2f min\n", id, endTime.Sub(startTime).Minutes())
 		}
 		fmt.Printf("Worker %d: done.\n", id)
-		results <- blockNumber
+		//results <- blockNumber
 	}
 }
 
