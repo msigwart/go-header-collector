@@ -27,35 +27,25 @@ func coordinator(headerDb *hc.BlockHeaderDB, start uint64, end uint64, jobs chan
 		startingBlockNumber = minBlockNumberWithoutWitness
 	}
 
-	for {
-		if end == 0 {
-			// if no end block is specified the ending block is determined by the highest block number without witness data
-			// this has to reevaluated on each loop iteration as this block might change
-			maxBlockNumberWithoutWitness, err := headerDb.MaxBlockNumberWithoutWitness()
-			if err != nil {
-				fmt.Printf("Coordinator: %s, stopping...\n", err)
-				close(jobs)
-				break
-			}
-			endingBlockNumber = maxBlockNumberWithoutWitness
+	if end == 0 {
+		// if no end block is specified the ending block is determined by the highest block number without witness data
+		// this has to reevaluated on each loop iteration as this block might change
+		maxBlockNumberWithoutWitness, err := headerDb.MaxBlockNumberWithoutWitness()
+		if err != nil {
+			fmt.Printf("Coordinator: %s, stopping...\n", err)
+			close(jobs)
+			done <- true
+			return
 		}
-
-		if startingBlockNumber >= endingBlockNumber {
-			break
-		}
-		//queueSize := uint64(BATCH_SIZE)
-		//if endingBlockNumber - startingBlockNumber < BATCH_SIZE {
-		//	queueSize = endingBlockNumber - startingBlockNumber + 1
-		//}
-		fmt.Printf("Coordinator: generating witness data for blocks %d to %d...\n", startingBlockNumber, endingBlockNumber)
-		for i := startingBlockNumber; i <= endingBlockNumber; i++ {
-			fmt.Printf("Coordinator: Assign block height %d / %d\n", i, endingBlockNumber)
-			jobs <- i
-		}
-		//for r := uint64(0); r < queueSize; r++ {
-		//	startingBlockNumber = <-results + 1
-		//}
+		endingBlockNumber = maxBlockNumberWithoutWitness
 	}
+
+	fmt.Printf("Coordinator: generating witness data for blocks %d to %d...\n", startingBlockNumber, endingBlockNumber)
+	for i := startingBlockNumber; i <= endingBlockNumber; i++ {
+		fmt.Printf("Coordinator: Assign block height %d / %d\n", i, endingBlockNumber)
+		jobs <- i
+	}
+
 	done <- true
 }
 
@@ -90,20 +80,19 @@ func worker(id int, headerDb *hc.BlockHeaderDB, jobs <-chan uint64, results chan
 }
 
 func main() {
-	workers    := flag.Uint("workers", 5, "number of workers")
-	start      := flag.Uint64("start", 0, "starting block")
-	end        := flag.Uint64("end", 0, "end block")
-	dbhost     := flag.String("dbhost", "localhost", "database host")
-	dbport     := flag.Uint("dbport", 5432, "database port")
-	dbname     := flag.String("dbname", "blockheader", "database name")
-	dbuser     := flag.String("dbuser", "postgres", "database user")
+	workers := flag.Uint("workers", 5, "number of workers")
+	start := flag.Uint64("start", 0, "starting block")
+	end := flag.Uint64("end", 0, "end block")
+	dbhost := flag.String("dbhost", "localhost", "database host")
+	dbport := flag.Uint("dbport", 5432, "database port")
+	dbname := flag.String("dbname", "blockheader", "database name")
+	dbuser := flag.String("dbuser", "postgres", "database user")
 	dbpassword := flag.String("dbpassword", "postgres", "database password")
 
 	flag.Parse()
 
 	headerDB := hc.ConnectToBlockHeaderDB(*dbhost, *dbport, *dbuser, *dbpassword, *dbname)
 	defer headerDB.Close()
-
 
 	jobs := make(chan uint64, BATCH_SIZE)
 	results := make(chan uint64, BATCH_SIZE)
