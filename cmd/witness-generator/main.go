@@ -61,26 +61,26 @@ func worker(id int, headerDb *hc.BlockHeaderDB, jobs <-chan uint64, results chan
 	for blockNumber := range jobs {
 		if headerDb.HasHeadersWithoutWitnessOfHeight(blockNumber) == false {
 			fmt.Printf("Worker %d: nothing to do for blocks of height %d, skipping...\n", id, blockNumber)
-			continue
-		}
-		fmt.Printf("Worker %d: generating witness data for blocks of height %d...\n", id, blockNumber)
-		headers := make(chan *types.Header)
-		go headerDb.HeadersWithoutWitnessOfHeight(blockNumber, headers)
+		} else {
+			fmt.Printf("Worker %d: generating witness data for blocks of height %d...\n", id, blockNumber)
+			headers := make(chan *types.Header)
+			go headerDb.HeadersWithoutWitnessOfHeight(blockNumber, headers)
 
-		for header := range headers {
-			if header.Hash() == (common.Hash{}) {
-				fmt.Printf("Worker %d: empty block header, skipping...\n", id)
-				continue
+			for header := range headers {
+				if header.Hash() == (common.Hash{}) {
+					fmt.Printf("Worker %d: empty block header, skipping...\n", id)
+					continue
+				}
+				fmt.Printf("Worker %d: block %s...\n", id, header.Hash().String())
+				// get DAG and compute dataSetLookup and witnessForLookup
+				blockMetaData := ethash.NewBlockMetaData(header.Number.Uint64(), header.Nonce.Uint64(), sealHash(header))
+				dataSetLookup := blockMetaData.DAGElementArray()
+				witnessForLookup := blockMetaData.DAGProofArray()
+				headerDb.AddWitnessDataForHeader(header, dataSetLookup, witnessForLookup)
 			}
-			fmt.Printf("Worker %d: block %s...\n", id, header.Hash().String())
-			// get DAG and compute dataSetLookup and witnessForLookup
-			blockMetaData := ethash.NewBlockMetaData(header.Number.Uint64(), header.Nonce.Uint64(), sealHash(header))
-			dataSetLookup := blockMetaData.DAGElementArray()
-			witnessForLookup := blockMetaData.DAGProofArray()
-			headerDb.AddWitnessDataForHeader(header, dataSetLookup, witnessForLookup)
+			fmt.Printf("Worker %d: done.\n", id)
 		}
-		fmt.Printf("Worker %d: done.\n", id)
-		results <- blockNumber
+		results <- blockNumber	// tell coordinator about finished job
 	}
 }
 
