@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/rlp"
 	hc "github.com/msigwart/header-collector"
 	"github.com/pantos-io/go-testimonium/ethereum/ethash"
+	"github.com/pantos-io/go-testimonium/mtree"
 	"golang.org/x/crypto/sha3"
 	"time"
 )
@@ -50,6 +51,7 @@ func coordinator(headerDb *hc.BlockHeaderDB, start uint64, end uint64, jobs chan
 }
 
 func worker(id int, headerDb *hc.BlockHeaderDB, jobs <-chan uint64) {
+	var dagTree *mtree.DagTree
 	for blockNumber := range jobs {
 		if headerDb.HasHeadersWithoutWitnessOfHeight(blockNumber) == false {
 			fmt.Printf("Worker %d: nothing to do for blocks of height %d, skipping...\n", id, blockNumber)
@@ -68,8 +70,12 @@ func worker(id int, headerDb *hc.BlockHeaderDB, jobs <-chan uint64) {
 			fmt.Printf("Worker %d: block %s...\n", id, header.Hash().String())
 			// get DAG and compute dataSetLookup and witnessForLookup
 			blockMetaData := ethash.NewBlockMetaData(header.Number.Uint64(), header.Nonce.Uint64(), sealHash(header))
+			if dagTree != nil {
+				blockMetaData.DagTree = dagTree
+			}
 			dataSetLookup := blockMetaData.DAGElementArray()
 			witnessForLookup := blockMetaData.DAGProofArray()
+			dagTree = blockMetaData.DagTree
 			headerDb.AddWitnessDataForHeader(header, dataSetLookup, witnessForLookup)
 			endTime := time.Now()
 			fmt.Printf("Worker %d: Time: %.2f min\n", id, endTime.Sub(startTime).Minutes())
