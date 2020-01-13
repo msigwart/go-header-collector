@@ -10,6 +10,7 @@ import (
 	"github.com/pantos-io/go-testimonium/ethereum/ethash"
 	"github.com/pantos-io/go-testimonium/mtree"
 	"golang.org/x/crypto/sha3"
+	"math"
 	"time"
 )
 
@@ -43,6 +44,10 @@ func coordinator(headerDb *hc.BlockHeaderDB, start uint64, end uint64, jobs chan
 
 	fmt.Printf("Coordinator: generating witness data for blocks %d to %d...\n", startingBlockNumber, endingBlockNumber)
 	for i := startingBlockNumber; i <= endingBlockNumber; i++ {
+		if headerDb.HasHeadersWithoutWitnessOfHeight(i) == false {
+			fmt.Printf("Coordinator: nothing to do for blocks of height %d, skipping...\n", i)
+			continue
+		}
 		fmt.Printf("Coordinator: Assign block height %d / %d\n", i, endingBlockNumber)
 		jobs <- i
 	}
@@ -52,14 +57,22 @@ func coordinator(headerDb *hc.BlockHeaderDB, start uint64, end uint64, jobs chan
 
 func worker(id int, headerDb *hc.BlockHeaderDB, jobs <-chan uint64) {
 	var dagTree *mtree.DagTree
+	var currentEpoch float64 = 0
 	for blockNumber := range jobs {
 		if headerDb.HasHeadersWithoutWitnessOfHeight(blockNumber) == false {
 			fmt.Printf("Worker %d: nothing to do for blocks of height %d, skipping...\n", id, blockNumber)
 			continue
 		}
-		fmt.Printf("Worker %d: generating witness data for blocks of height %d...\n", id, blockNumber)
 		headers := make(chan *types.Header)
 		go headerDb.HeadersWithoutWitnessOfHeight(blockNumber, headers)
+
+		newEpoch := math.Floor(float64(blockNumber / 30000))
+		if newEpoch > currentEpoch {
+			currentEpoch = newEpoch
+			dagTree = nil
+		}
+		fmt.Printf("Worker %d: generating witness data for blocks of height %d (epoch %.0f)...\n", id, blockNumber, currentEpoch)
+
 
 		for header := range headers {
 			startTime := time.Now()
