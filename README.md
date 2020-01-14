@@ -38,6 +38,7 @@ After cloning the repository, install the binaries with
 
 This installs the following executable binaries:
 * `header-collector`
+* `header-filler`
 * `dag-generator`
 * `witness-generator`
 
@@ -45,6 +46,11 @@ This installs the following executable binaries:
 This command starts the header collection process. 
 For that, it needs to connect to a running Ethereum node via Websockets. 
 The command subscribes to all block headers from the node and stores them in the Postgres database.
+
+### `header-filler`
+This command searches through all block headers included in the blockheader database 
+and verifies that the respective parents are also included in the database. 
+If a missing parent is found, it is queried from the Ethereum mainnet and inserted into the database. 
 
 ### `dag-generator`
 This command generates the cache files which are needed for the witness data generation. 

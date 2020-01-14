@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/lib/pq"
 	_ "github.com/lib/pq"
@@ -50,6 +51,37 @@ func ConnectToBlockHeaderDB(host string, port uint, user string, password string
 	}
 	fmt.Printf("Successfully connected to database %s\n", dbname)
 	return &BlockHeaderDB{db}
+}
+
+func (db *BlockHeaderDB) MinBlockNumber() (uint64, error) {
+	sqlStatement := `SELECT MIN(block_number) FROM blockheader`
+	var minBlockNumber uint64
+	row := db.db.QueryRow(sqlStatement)
+	switch err := row.Scan(&minBlockNumber); err {
+	case sql.ErrNoRows:
+		fmt.Println()
+		return 0, fmt.Errorf("no rows without witness data exist")
+	case nil:
+		break
+	default:
+		return 0, err
+	}
+	return minBlockNumber, nil
+}
+
+func (db *BlockHeaderDB) MaxBlockNumber() (uint64, error) {
+	sqlStatement := `SELECT MAX(block_number) FROM blockheader`
+	var maxBlockNumber uint64
+	row := db.db.QueryRow(sqlStatement)
+	switch err := row.Scan(&maxBlockNumber); err {
+	case sql.ErrNoRows:
+		return 0, fmt.Errorf("no rows without witness data exist")
+	case nil:
+		break
+	default:
+		return 0, err
+	}
+	return maxBlockNumber, nil
 }
 
 func (db *BlockHeaderDB) MinBlockNumberWithoutWitness() (uint64, error) {
@@ -99,6 +131,52 @@ func (db *BlockHeaderDB) HasHeadersWithoutWitnessOfHeight(height uint64) bool {
 		return false
 	} else {
 		return true
+	}
+}
+
+func (db *BlockHeaderDB) HeadersOfHeight(height uint64, results chan<- *types.Header) {
+	sqlStatement := `SELECT block_data FROM blockheader WHERE block_number = $1`
+	rows, err := db.db.Query(sqlStatement, height)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		header := new(types.Header)
+		var headerJson string
+		err = rows.Scan(&headerJson)
+		if err != nil {
+			// handle this error
+			log.Fatal(err)
+		}
+		b := []byte(headerJson)
+		err = json.Unmarshal(b, &header)
+		results <- header
+	}
+	close(results)
+	// get any error encountered during iteration
+	err = rows.Err()
+	if err != nil {
+		log.Fatal()
+	}
+}
+
+func (db *BlockHeaderDB) HasHeaderOfHash(hash common.Hash) (bool, error) {
+	sqlStatement := `SELECT COUNT(1) FROM blockheader WHERE block_data ->> 'hash' = $1`
+	row := db.db.QueryRow(sqlStatement, hash.Hex())
+	var count uint
+	switch err := row.Scan(&count); err {
+	case sql.ErrNoRows:
+		return false, err
+	case nil:
+		break
+	default:
+		return false, err
+	}
+	if count == 0 {
+		return false, nil
+	} else {
+		return true, nil
 	}
 }
 
