@@ -16,6 +16,9 @@ func main() {
 	dbname := flag.String("dbname", "blockheader", "database name")
 	dbuser := flag.String("dbuser", "postgres", "database user")
 	dbpassword := flag.String("dbpassword", "postgres", "database password")
+	start := flag.Uint64("start", 0, "start block number")
+
+	const batchSize = 10000
 
 	flag.Parse()
 
@@ -27,7 +30,9 @@ func main() {
 		log.Fatal(err)
 	}
 
-	start, err := headerDB.MinBlockNumber()
+	if *start == 0 {
+		*start, err = headerDB.MinBlockNumber()
+	}
 	end, err := headerDB.MaxBlockNumber()
 	fmt.Println(start, end)
 
@@ -36,27 +41,32 @@ func main() {
 	}
 
 	fmt.Printf("Looking for missing headers...\n")
-	for blockNumber := start + 1; blockNumber <= end; blockNumber++ {
-		fmt.Printf("Height %d...\r", blockNumber)
-		headers := make(chan *types.Header)
-		go headerDB.HeadersOfHeight(blockNumber, headers)
+	for blockNumber := *start; blockNumber <= end; blockNumber += batchSize {
+		orphans := make(chan *types.Header)
+		go headerDB.BlocksWithMissingParents(blockNumber, blockNumber + batchSize, orphans)
 
-		for header := range headers {
-			hasHeader, err := headerDB.HasHeaderOfHash(header.ParentHash)
+		for orphan := range orphans {
+			hasHeader, err := headerDB.HasHeaderOfHash(orphan.ParentHash)
 			if err != nil {
 				log.Fatal(err)
 			}
 			if hasHeader {
 				continue
 			}
-			fmt.Printf("Header %s (height: %d) is missing, inserting now...\n", header.ParentHash.Hex(), blockNumber)
-			missingHeader, err := client.HeaderByHash(context.Background(), header.ParentHash)
+			fmt.Printf("Header %s is orphan, looking for parent...\n", orphan.Hash().Hex())
+			foundParent, err := client.HeaderByHash(context.Background(), orphan.ParentHash)
 			if err != nil {
-				log.Fatal(err)
+				fmt.Printf("Could not find parent %s, moving header %s to orphans...\n", orphan.ParentHash.Hex(), shortHex(orphan.Hash().Hex()))
+				headerDB.MoveToOrphans(orphan.Hash())
+			} else {
+				fmt.Printf("Parent %s found, adding...\n", foundParent.Hash().Hex())
+				headerDB.InsertBlockHeader(foundParent)
 			}
-			headerDB.InsertBlockHeader(missingHeader)
-			fmt.Printf("Successfully inserted header %s, looking for next missing header...\n", header.ParentHash.Hex())
 		}
 	}
 
+}
+
+func shortHex(hex string) string {
+	return fmt.Sprintf("%s...%s", hex[:5], hex[len(hex)-3:])
 }

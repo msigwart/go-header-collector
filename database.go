@@ -161,6 +161,55 @@ func (db *BlockHeaderDB) HeadersOfHeight(height uint64, results chan<- *types.He
 	}
 }
 
+func (db *BlockHeaderDB) BlocksWithMissingParents(from uint64, to uint64, results chan<- *types.Header) {
+	sqlStatement := `
+select b.block_data
+from (select * from blockheader where block_number > $1 and block_number <= $2) as h
+right join (select * from blockheader where block_number > $1 and block_number <= $2) as b
+on b.block_data ->> 'parentHash' = h.block_data ->> 'hash' 
+where h.block_data is null;
+`
+	rows, err := db.db.Query(sqlStatement, from, to)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		header := new(types.Header)
+		var headerJson string
+		err = rows.Scan(&headerJson)
+		if err != nil {
+			// handle this error
+			log.Fatal(err)
+		}
+		b := []byte(headerJson)
+		err = json.Unmarshal(b, &header)
+		results <- header
+	}
+	close(results)
+	// get any error encountered during iteration
+	err = rows.Err()
+	if err != nil {
+		log.Fatal()
+	}
+}
+
+func (db *BlockHeaderDB) MoveToOrphans(hash common.Hash) {
+	sqlStatement := `
+WITH moved_rows AS (
+    DELETE FROM blockheader b
+    WHERE b.block_data ->> 'hash' = $1
+    RETURNING b.*
+)
+INSERT INTO orphan --specify columns if necessary
+SELECT DISTINCT * FROM moved_rows;
+`
+	_, err := db.db.Exec(sqlStatement, hash.Hex())
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
 func (db *BlockHeaderDB) HasHeaderOfHash(hash common.Hash) (bool, error) {
 	sqlStatement := `SELECT COUNT(1) FROM blockheader WHERE block_data ->> 'hash' = $1`
 	row := db.db.QueryRow(sqlStatement, hash.Hex())
