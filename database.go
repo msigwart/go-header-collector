@@ -229,6 +229,35 @@ func (db *BlockHeaderDB) HasHeaderOfHash(hash common.Hash) (bool, error) {
 	}
 }
 
+
+func (db *BlockHeaderDB) HeadersWithoutWitness(start uint64, end uint64, results chan<- *types.Header) {
+	sqlStatement := `SELECT block_data FROM blockheader WHERE block_number >= $1 AND block_number < $2 AND dataset_lookup IS NULL`
+	rows, err := db.db.Query(sqlStatement, start, end)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		header := new(types.Header)
+		var headerJson string
+		err = rows.Scan(&headerJson)
+		if err != nil {
+			// handle this error
+			log.Fatal(err)
+		}
+		b := []byte(headerJson)
+		err = json.Unmarshal(b, &header)
+		results <- header
+	}
+	// get any error encountered during iteration
+	err = rows.Err()
+	if err != nil {
+		log.Fatal()
+	}
+	close(results)
+}
+
+
 func (db *BlockHeaderDB) HeadersWithoutWitnessOfHeight(height uint64, results chan<- *types.Header) {
 	sqlStatement := `SELECT block_data FROM blockheader WHERE block_number = $1 AND dataset_lookup IS NULL`
 	rows, err := db.db.Query(sqlStatement, height)
