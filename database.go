@@ -231,7 +231,7 @@ func (db *BlockHeaderDB) HasHeaderOfHash(hash common.Hash) (bool, error) {
 
 
 func (db *BlockHeaderDB) HeadersWithoutWitness(start uint64, end uint64, results chan<- *types.Header) {
-	sqlStatement := `SELECT block_data FROM blockheader WHERE block_number >= $1 AND block_number < $2 AND dataset_lookup IS NULL ORDER BY block_number`
+	sqlStatement := `SELECT block_data FROM blockheader WHERE block_number >= $1 AND block_number < $2 AND dataset_lookup IS NULL`
 	rows, err := db.db.Query(sqlStatement, start, end)
 	if err != nil {
 		log.Fatal(err)
@@ -285,16 +285,13 @@ func (db *BlockHeaderDB) HeadersWithoutWitnessOfHeight(height uint64, results ch
 	close(results)
 }
 
-func (db *BlockHeaderDB) AddWitnessDataForHeader(header *types.Header, dataSetLookup []*big.Int, witnessForLookup []*big.Int) {
+func (db *BlockHeaderDB) AddWitnessDataForHeader(header *types.Header, dataSetLookup []*big.Int, witnessForLookup []*big.Int) (int64, error)  {
 	sqlStatement := `UPDATE blockheader SET dataset_lookup = $2, witness_lookup = $3 WHERE block_hash = $1`
 	res, err := db.db.Exec(sqlStatement, header.Hash().Hex()[2:], convertToPqArray(dataSetLookup), convertToPqArray(witnessForLookup))
 	if err != nil {
 		log.Fatal(err)
 	}
-	_, err = res.RowsAffected()
-	if err != nil {
-		log.Fatal(err)
-	}
+	return res.RowsAffected()
 }
 
 func convertToPqArray(pointerArray []*big.Int) interface{} {

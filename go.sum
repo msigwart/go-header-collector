@@ -233,6 +233,12 @@ github.com/oschwald/maxminddb-golang v1.5.0/go.mod h1:3jhIUymTJ5VREKyIhWm66LJiQt
 github.com/pantos-io/go-testimonium v0.1.0/go.mod h1:9UMccqsoh2cM4EoarSgHvZPgjdIYYDyStMYG0CJv2qc=
 github.com/pantos-io/go-testimonium v0.1.1-0.20200107165350-6abfbacdbc25 h1:6f4gMXEN9X25TeKfGF2Fy7lWOu4BOF6zq4fkRl1fCaU=
 github.com/pantos-io/go-testimonium v0.1.1-0.20200107165350-6abfbacdbc25/go.mod h1:FzzhAhmcLRKcCLoYE3mAkMjDyvRQcN7N7JA2gUNgMik=
+github.com/pantos-io/go-testimonium v0.1.1-0.20200116140901-3512a9a85b6d h1:ljclu2CVm4kP4JrRGHvJGWHV0NzC/DskkqSHyGP7RAw=
+github.com/pantos-io/go-testimonium v0.1.1-0.20200116140901-3512a9a85b6d/go.mod h1:FzzhAhmcLRKcCLoYE3mAkMjDyvRQcN7N7JA2gUNgMik=
+github.com/pantos-io/go-testimonium v0.1.1-0.20200116142635-34a856d2eb39 h1:Plj3nUoUvVKW4cb3XIuLngmFU+6h2/WteXVrUKzU3kg=
+github.com/pantos-io/go-testimonium v0.1.1-0.20200116142635-34a856d2eb39/go.mod h1:FzzhAhmcLRKcCLoYE3mAkMjDyvRQcN7N7JA2gUNgMik=
+github.com/pantos-io/go-testimonium v0.1.1-0.20200116144629-40cbfc9f7373 h1:4IZUFjAi+rA1I4SSlA12lOLtUk9Un6nJBusWX9XwZ1w=
+github.com/pantos-io/go-testimonium v0.1.1-0.20200116144629-40cbfc9f7373/go.mod h1:FzzhAhmcLRKcCLoYE3mAkMjDyvRQcN7N7JA2gUNgMik=
 github.com/pborman/uuid v0.0.0-20170112150404-1b00554d8222/go.mod h1:VyrYX9gd7irzKovcSS6BIIEwPRkP2Wm2m9ufcdFSJ34=
 github.com/pborman/uuid v1.2.0 h1:J7Q5mO4ysT1dv8hyrUGHb9+ooztCXu1D8MY8DZYsu3g=
 github.com/pborman/uuid v1.2.0/go.mod h1:X/NO0urCmaxf9VXbdlT7C2Yzkj2IKimNn4k+gtPdI/k=

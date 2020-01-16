@@ -8,15 +8,20 @@ import (
 	"github.com/ethereum/go-ethereum/rlp"
 	hc "github.com/msigwart/header-collector"
 	"github.com/pantos-io/go-testimonium/ethereum/ethash"
-	"github.com/pantos-io/go-testimonium/mtree"
 	"golang.org/x/crypto/sha3"
+	"log"
 	"math"
 	"time"
 )
 
 const batchSize = 10000
 
-func coordinator(headerDb *hc.BlockHeaderDB, start uint64, end uint64, jobs chan<- *types.Header, done chan<- bool) {
+type job struct {
+	Header *types.Header
+	BlockMetaData *ethash.BlockMetaData
+}
+
+func coordinator(headerDb *hc.BlockHeaderDB, start uint64, end uint64, jobs chan<- job, done chan<- bool) {
 	startingBlockNumber := start
 	endingBlockNumber := end
 	if start == 0 {
@@ -45,43 +50,55 @@ func coordinator(headerDb *hc.BlockHeaderDB, start uint64, end uint64, jobs chan
 	fmt.Printf("Coordinator: looking for headers without witness data (headers %d to %d)...\n", startingBlockNumber, endingBlockNumber)
 	for i := startingBlockNumber; i <= endingBlockNumber; i += batchSize {
 		headers := make(chan *types.Header)
-		go headerDb.HeadersWithoutWitness(i, i + batchSize, headers)
-		count := 0
-		for header := range headers {
-			jobs <- header
-			count++
+		endBlock := i + batchSize
+		if endBlock > endingBlockNumber {
+			endBlock = endingBlockNumber
 		}
+		go headerDb.HeadersWithoutWitness(i, endBlock, headers)
+		var jobsArray []job
+		var metaDataArray []*ethash.BlockMetaData
+		for header := range headers {
+			blockMetaData := ethash.NewBlockMetaData(header.Number.Uint64(), header.Nonce.Uint64(), sealHash(header))
+			jobsArray = append(jobsArray, job{header, blockMetaData})
+			metaDataArray = append(metaDataArray, blockMetaData)
+		}
+		ethash.BuildDagTrees(metaDataArray)
+		count := 0
+		for i, job := range jobsArray {
+			jobs <- job
+			count = i + 1
+		}
+
 		fmt.Printf("Coordinator: found %d headers...\n", count)
 	}
 }
 
-func worker(id int, headerDb *hc.BlockHeaderDB, jobs <-chan *types.Header) {
-	var dagTree *mtree.DagTree
+func worker(id int, headerDb *hc.BlockHeaderDB, jobs <-chan job) {
 	var currentEpoch float64 = 0
-	for header := range jobs {
+	for j := range jobs {
 
-		newEpoch := math.Floor(float64(header.Number.Uint64() / 30000))
+		newEpoch := math.Floor(float64(j.Header.Number.Uint64() / 30000))
 		if newEpoch != currentEpoch {
 			currentEpoch = newEpoch
-			dagTree = nil
+			//dagTree = nil
 		}
-		fmt.Printf("Worker %d: generating witness data for header %s (height %d, epoch %.0f)...\n", id, header.Hash().Hex(), header.Number, currentEpoch)
+		fmt.Printf("Worker %d: generating witness data for header %s (height %d, epoch %f)...\n", id, j.Header.Hash().Hex(), j.Header.Number, currentEpoch)
 		startTime := time.Now()
-		if header.Hash() == (common.Hash{}) {
+		if j.Header.Hash() == (common.Hash{}) {
 			fmt.Printf("Worker %d: empty block header, skipping...\n", id)
 			continue
 		}
-		// get DAG and compute dataSetLookup and witnessForLookup
-		blockMetaData := ethash.NewBlockMetaData(header.Number.Uint64(), header.Nonce.Uint64(), sealHash(header))
-		if dagTree != nil {
-			blockMetaData.DagTree = dagTree
+		// Compute dataSetLookup and witnessForLookup
+		dataSetLookup := j.BlockMetaData.DAGElementArray()
+		witnessForLookup := j.BlockMetaData.DAGProofArray()
+		//dagTree = blockMetaData.DagTree
+		fmt.Printf("Worker %d: dataSetLookup: %s, witnessForLookup: %s\n", id, dataSetLookup[0], witnessForLookup[0])
+		rowsAffected, err := headerDb.AddWitnessDataForHeader(j.Header, dataSetLookup, witnessForLookup)
+		if err != nil {
+			log.Fatal(err)
 		}
-		dataSetLookup := blockMetaData.DAGElementArray()
-		witnessForLookup := blockMetaData.DAGProofArray()
-		dagTree = blockMetaData.DagTree
-		headerDb.AddWitnessDataForHeader(header, dataSetLookup, witnessForLookup)
 		endTime := time.Now()
-		fmt.Printf("Worker %d: done (time: %.2f min).\n", id, endTime.Sub(startTime).Minutes())
+		fmt.Printf("Worker %d: done (time: %.2f min, rows affected: %d).\n", id, endTime.Sub(startTime).Minutes(), rowsAffected)
 	}
 }
 
@@ -100,7 +117,7 @@ func main() {
 	headerDB := hc.ConnectToBlockHeaderDB(*dbhost, *dbport, *dbuser, *dbpassword, *dbname)
 	defer headerDB.Close()
 
-	jobs := make(chan *types.Header, batchSize)
+	jobs := make(chan job, batchSize)
 	done := make(chan bool)
 
 	fmt.Printf("*** Starting witness data generation ***\n")
