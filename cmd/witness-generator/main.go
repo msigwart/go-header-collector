@@ -61,7 +61,7 @@ func worker(id int, headerDb *hc.BlockHeaderDB, jobs <-chan *types.Header) {
 	for header := range jobs {
 
 		newEpoch := math.Floor(float64(header.Number.Uint64() / 30000))
-		if newEpoch > currentEpoch {
+		if newEpoch != currentEpoch {
 			currentEpoch = newEpoch
 			dagTree = nil
 		}

@@ -231,7 +231,7 @@ func (db *BlockHeaderDB) HasHeaderOfHash(hash common.Hash) (bool, error) {
 
 
 func (db *BlockHeaderDB) HeadersWithoutWitness(start uint64, end uint64, results chan<- *types.Header) {
-	sqlStatement := `SELECT block_data FROM blockheader WHERE block_number >= $1 AND block_number < $2 AND dataset_lookup IS NULL`
+	sqlStatement := `SELECT block_data FROM blockheader WHERE block_number >= $1 AND block_number < $2 AND dataset_lookup IS NULL ORDER BY block_number`
 	rows, err := db.db.Query(sqlStatement, start, end)
 	if err != nil {
 		log.Fatal(err)
