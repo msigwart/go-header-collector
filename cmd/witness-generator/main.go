@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"github.com/ethereum/go-ethereum/common"
@@ -9,8 +10,9 @@ import (
 	hc "github.com/msigwart/header-collector"
 	"github.com/pantos-io/go-testimonium/ethereum/ethash"
 	"golang.org/x/crypto/sha3"
+	"io"
 	"log"
-	"math"
+	"os"
 	"time"
 )
 
@@ -18,7 +20,59 @@ const batchSize = 10000
 
 type job struct {
 	Header *types.Header
-	BlockMetaData *ethash.BlockMetaData
+	//BufferedDag *ethash.BufferedDag
+}
+
+var dag *ethash.BufferedDag = &ethash.BufferedDag{
+									Buf: make([]byte, 4*1024*1024*1024),
+									Indices: make([]uint32, 4*1024*1024*1024/128),
+									IndexCnt: 0,
+							  }
+
+func loadDAG(datasetPath string/*, dag *ethash.BufferedDag*/) {
+	var f *os.File
+	var err error
+	for {
+		f, err = os.Open(datasetPath)
+		if err == nil {
+			break
+		} else {
+			fmt.Printf("Reading DAG file %s failed with %s. Retry in 10s...\n", datasetPath, err.Error())
+			time.Sleep(10 * time.Second)
+		}
+	}
+	r := bufio.NewReader(f)
+	buf := [128]byte{}
+	// ignore first 8 bytes magic number at the beginning
+	// of dataset. See more at https://gopkg.in/ethereum/wiki/wiki/Ethash-DAG-Disk-Storage-Format
+	_, err = io.ReadFull(r, buf[:8])
+	if err != nil {
+		log.Fatal(err)
+	}
+	var i uint32 = 0
+	for {
+		//n, err := io.ReadFull(r, buf[:128])
+		n, err := io.ReadFull(r, dag.Buf[i*128:(i+1)*128])
+		if n == 0 {
+			if err == nil {
+				continue
+			}
+			if err == io.EOF {
+				break
+			}
+			log.Fatal(err)
+		}
+		if n != 128 {
+			log.Fatal("Malformed dataset")
+		}
+		dag.Indices[dag.IndexCnt] = i
+		dag.IndexCnt++
+
+		if err != nil && err != io.EOF {
+			log.Fatal(err)
+		}
+		i++
+	}
 }
 
 func coordinator(headerDb *hc.BlockHeaderDB, start uint64, end uint64, jobs chan<- job, done chan<- bool) {
@@ -48,6 +102,15 @@ func coordinator(headerDb *hc.BlockHeaderDB, start uint64, end uint64, jobs chan
 	}
 
 	fmt.Printf("Coordinator: looking for headers without witness data (headers %d to %d)...\n", startingBlockNumber, endingBlockNumber)
+
+	ethash.MakeDAG(startingBlockNumber, ethash.DefaultDir)
+	pathToDAG := ethash.PathToDAG(startingBlockNumber/30000, ethash.DefaultDir)
+
+	fmt.Println("load DAG File...")
+	loadDAG(pathToDAG, /*&dag*/)
+	fmt.Println("Generate Witnesses...")
+
+
 	for i := startingBlockNumber; i <= endingBlockNumber; i += batchSize {
 		headers := make(chan *types.Header)
 		endBlock := i + batchSize
@@ -55,18 +118,11 @@ func coordinator(headerDb *hc.BlockHeaderDB, start uint64, end uint64, jobs chan
 			endBlock = endingBlockNumber
 		}
 		go headerDb.HeadersWithoutWitness(i, endBlock, headers)
-		var jobsArray []job
-		var metaDataArray []*ethash.BlockMetaData
-		for header := range headers {
-			blockMetaData := ethash.NewBlockMetaData(header.Number.Uint64(), header.Nonce.Uint64(), sealHash(header))
-			jobsArray = append(jobsArray, job{header, blockMetaData})
-			metaDataArray = append(metaDataArray, blockMetaData)
-		}
-		ethash.BuildDagTrees(metaDataArray)
 		count := 0
-		for i, job := range jobsArray {
+		for header := range headers {
+			job := job{header, /*&dag*/}
 			jobs <- job
-			count = i + 1
+			count++
 		}
 
 		fmt.Printf("Coordinator: found %d headers...\n", count)
@@ -74,28 +130,32 @@ func coordinator(headerDb *hc.BlockHeaderDB, start uint64, end uint64, jobs chan
 }
 
 func worker(id int, headerDb *hc.BlockHeaderDB, jobs <-chan job) {
-	var currentEpoch float64 = 0
 	for j := range jobs {
 
-		newEpoch := math.Floor(float64(j.Header.Number.Uint64() / 30000))
-		if newEpoch != currentEpoch {
-			currentEpoch = newEpoch
-			//dagTree = nil
-		}
-		fmt.Printf("Worker %d: generating witness data for header %s (height %d, epoch %f)...\n", id, j.Header.Hash().Hex(), j.Header.Number, currentEpoch)
+		fmt.Printf("Worker %d: generating witness data for header %s (height %d)...\n", id, j.Header.Hash().Hex(), j.Header.Number)
 		startTime := time.Now()
 		if j.Header.Hash() == (common.Hash{}) {
 			fmt.Printf("Worker %d: empty block header, skipping...\n", id)
 			continue
 		}
+
 		// Compute dataSetLookup and witnessForLookup
-		dataSetLookup := j.BlockMetaData.DAGElementArray()
-		witnessForLookup := j.BlockMetaData.DAGProofArray()
-		//dagTree = blockMetaData.DagTree
+		blockMetaData := ethash.NewBlockMetaData(j.Header.Number.Uint64(), j.Header.Nonce.Uint64(), sealHash(j.Header))
+		blockMetaData.BuildDagTree(dag)
+		dataSetLookup := blockMetaData.DAGElementArray()
+		witnessForLookup := blockMetaData.DAGProofArray()
+
 		fmt.Printf("Worker %d: dataSetLookup: %s, witnessForLookup: %s\n", id, dataSetLookup[0], witnessForLookup[0])
-		rowsAffected, err := headerDb.AddWitnessDataForHeader(j.Header, dataSetLookup, witnessForLookup)
-		if err != nil {
-			log.Fatal(err)
+
+		var rowsAffected int64
+		var err error
+		for {
+			rowsAffected, err = headerDb.AddWitnessDataForHeader(j.Header, dataSetLookup, witnessForLookup)
+			if err == nil {
+				break
+			}
+			log.Println(err)
+			log.Println("Trying again...")
 		}
 		endTime := time.Now()
 		fmt.Printf("Worker %d: done (time: %.2f min, rows affected: %d).\n", id, endTime.Sub(startTime).Minutes(), rowsAffected)
