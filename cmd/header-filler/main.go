@@ -34,7 +34,7 @@ func main() {
 		*start, err = headerDB.MinBlockNumber()
 	}
 	end, err := headerDB.MaxBlockNumber()
-	fmt.Println(start, end)
+	fmt.Println(*start, end)
 
 	if err != nil {
 		log.Fatal(err)
@@ -46,28 +46,33 @@ func main() {
 		go headerDB.BlocksWithMissingParents(blockNumber, blockNumber + batchSize, orphans)
 
 		for orphan := range orphans {
-			hasHeader, err := headerDB.HasHeaderOfHash(orphan.ParentHash)
-			if err != nil {
-				log.Fatal(err)
-			}
-			if hasHeader {
-				continue
-			}
-			fmt.Printf("Header %s is orphan, looking for parent...\n", orphan.Hash().Hex())
-			foundParent, err := client.HeaderByHash(context.Background(), orphan.ParentHash)
-			if err != nil {
-				fmt.Printf("Could not find parent %s, moving header %s to orphans...\n", orphan.ParentHash.Hex(), shortHex(orphan.Hash().Hex()))
-				headerDB.MoveToOrphans(orphan.Hash())
-			} else {
-				fmt.Printf("Parent %s found, adding...\n", foundParent.Hash().Hex())
-				_, err = headerDB.InsertBlockHeader(foundParent)
-				if err != nil {
-					fmt.Printf("Warning: Could not insert header (%s)\n", err)
-				}
-			}
+			findParent(headerDB, client, orphan)
 		}
 	}
 
+}
+
+func findParent(headerDB *hc.BlockHeaderDB, client *ethclient.Client, orphan *types.Header) {
+	hasHeader, err := headerDB.HasHeaderOfHash(orphan.ParentHash)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if hasHeader {
+		return
+	}
+	fmt.Printf("Header %s is orphan, looking for parent...\n", orphan.Hash().Hex())
+	foundParent, err := client.HeaderByHash(context.Background(), orphan.ParentHash)
+	if err != nil {
+		fmt.Printf("Could not find parent %s, moving header %s to orphans...\n", orphan.ParentHash.Hex(), shortHex(orphan.Hash().Hex()))
+		headerDB.MoveToOrphans(orphan.Hash())
+	} else {
+		fmt.Printf("Parent %s found, adding...\n", foundParent.Hash().Hex())
+		_, err = headerDB.InsertBlockHeader(foundParent)
+		if err != nil {
+			fmt.Printf("Warning: Could not insert header (%s)\n", err)
+		}
+		findParent(headerDB, client, foundParent)
+	}
 }
 
 func shortHex(hex string) string {
