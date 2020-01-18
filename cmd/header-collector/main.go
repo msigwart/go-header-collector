@@ -43,7 +43,10 @@ func main() {
 			log.Fatal(err)
 		case header := <-headers:
 			fmt.Printf("Height: %s: %s\n", header.Number.String(), header.Hash().Hex()) // 0xbc10defa8dda384c96a17640d84de5578804945d347072e091b4e5f390ddea7f
-			headerDB.InsertBlockHeader(header)
+			_, err := headerDB.InsertBlockHeader(header)
+			if err != nil {
+				fmt.Printf("Warning: Could not insert header (%s)\n", err)
+			}
 		}
 	}
 

@@ -60,7 +60,10 @@ func main() {
 				headerDB.MoveToOrphans(orphan.Hash())
 			} else {
 				fmt.Printf("Parent %s found, adding...\n", foundParent.Hash().Hex())
-				headerDB.InsertBlockHeader(foundParent)
+				_, err = headerDB.InsertBlockHeader(foundParent)
+				if err != nil {
+					fmt.Printf("Warning: Could not insert header (%s)\n", err)
+				}
 			}
 		}
 	}

@@ -16,7 +16,7 @@ type BlockHeaderDB struct {
 	db *sql.DB
 }
 
-func (db *BlockHeaderDB) InsertBlockHeader(header *types.Header) {
+func (db *BlockHeaderDB) InsertBlockHeader(header *types.Header) (sql.Result, error) {
 	headerJson, err := json.Marshal(header)
 	if err != nil {
 		log.Fatal(err)
@@ -25,10 +25,7 @@ func (db *BlockHeaderDB) InsertBlockHeader(header *types.Header) {
 	sqlStatement := `
 INSERT INTO blockheader (block_hash, block_number, block_data)
 VALUES ($1, $2, $3)`
-	_, err = db.db.Exec(sqlStatement, header.Hash().Hex()[2:], header.Number.String(), string(headerJson))
-	if err != nil {
-		log.Fatal(err)
-	}
+	return db.db.Exec(sqlStatement, header.Hash().Hex()[2:], header.Number.String(), string(headerJson))
 }
 
 func (db *BlockHeaderDB) Close() {
